@@ -60,7 +60,7 @@ class MainActivity : Activity() {
         address = EditText(this).apply {
             hint = "Digite um site (https://...)"
             textSize = 15f
-            singleLine = true
+            isSingleLine = true
             setTextColor(Color.WHITE)
             setHintTextColor(Color.LTGRAY)
             setPadding(dp(10), 0, dp(10), 0)
