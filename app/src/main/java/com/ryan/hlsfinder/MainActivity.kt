@@ -1,6 +1,7 @@
 package com.ryan.hlsfinder
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.os.Bundle
 import android.graphics.Color
 import android.content.ClipData
@@ -118,7 +119,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         countText = TextView(this).apply {
-            text = "Links M3U8 encontrados: 0"
+            text = "Links de vídeo encontrados: 0"
             textSize = 14f
             setTextColor(Color.WHITE)
         }
@@ -171,11 +172,17 @@ class MainActivity : Activity() {
     }
 
     private fun detectLink(raw: String) {
-        val lower = raw.lowercase()
-        val path = try { URI(raw).path?.lowercase() ?: lower.substringBefore('?') } catch (_: Exception) { lower.substringBefore('?') }
-        if (!path.endsWith(".m3u8") && !lower.contains(".m3u8?")) return
-        if (!raw.startsWith("http://") && !raw.startsWith("https://")) return
-        val added = synchronized(links) { links.add(raw) }
+        val clean = raw.trim()
+        if (!clean.startsWith("http://", ignoreCase = true) &&
+            !clean.startsWith("https://", ignoreCase = true)) return
+        val lower = clean.lowercase()
+        val path = try { URI(clean).path?.lowercase() ?: lower.substringBefore('?') }
+            catch (_: Exception) { lower.substringBefore('?') }
+        // Detecta playlists HLS e MPEG-DASH; mantém a URL completa, incluindo tokens.
+        val isPlaylist = path.endsWith(".m3u8") || path.endsWith(".mpd") ||
+            lower.contains(".m3u8?") || lower.contains(".mpd?")
+        if (!isPlaylist) return
+        val added = synchronized(links) { links.add(clean) }
         if (added) runOnUiThread { renderLinks() }
     }
 
@@ -183,7 +190,7 @@ class MainActivity : Activity() {
         if (!::resultsBox.isInitialized) return
         resultsBox.removeAllViews()
         val snapshot = synchronized(links) { links.toList().reversed() }
-        countText.text = "Links M3U8 encontrados: ${snapshot.size}"
+        countText.text = "Playlists encontradas: ${snapshot.size}"
         if (snapshot.isEmpty()) {
             resultsBox.addView(TextView(this).apply {
                 text = "Abra um site e reproduza o vídeo. Os links detectados aparecerão aqui."
@@ -210,6 +217,8 @@ class MainActivity : Activity() {
             row.addView(makeButton("COPIAR LINK", true) { copyText(url) }, LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(5) })
             row.addView(makeButton("ABRIR PLAYER", false) { openPlayer(url) }, LinearLayout.LayoutParams(0, dp(38), 1f))
             card.addView(row)
+            card.addView(makeButton("DIAGNÓSTICO", false) { showLinkDiagnostic(url) },
+                LinearLayout.LayoutParams(-1, dp(38)))
             val params = LinearLayout.LayoutParams(-1, -2)
             params.bottomMargin = dp(6)
             resultsBox.addView(card, params)
@@ -231,16 +240,63 @@ class MainActivity : Activity() {
         copyText(snapshot.joinToString("\n"))
     }
 
+    private fun showLinkDiagnostic(url: String) {
+        val uri = Uri.parse(url)
+        val path = uri.lastPathSegment.orEmpty().lowercase()
+        val kind = when {
+            path.endsWith(".m3u8") -> "HLS (.m3u8)"
+            path.endsWith(".mpd") -> "MPEG-DASH (.mpd)"
+            else -> "Formato de playlist não identificado"
+        }
+        val tokenHints = buildList {
+            if (url.contains("token", true) || url.contains("signature", true) ||
+                url.contains("expires", true) || url.contains("keyname", true)) {
+                add("A URL parece conter token/assinatura temporária.")
+            }
+            if (url.contains("IPRanges", true) || url.contains("iprange", true)) {
+                add("A URL contém um parâmetro de faixa de IP; o servidor pode restringir outros dispositivos/redes.")
+            }
+            if (url.contains("cookie", true)) add("A URL menciona cookie; pode depender da sessão.")
+        }
+        val message = buildString {
+            append("Formato: ").append(kind).append("\\n")
+            append("Servidor: ").append(uri.host ?: "não identificado").append("\\n\\n")
+            append("URL completa preservada: sim\\n")
+            if (tokenHints.isEmpty()) {
+                append("Não foi possível identificar restrições apenas pela URL.\\n")
+            } else {
+                tokenHints.forEach { append("• ").append(it).append("\\n") }
+            }
+            append("\\nSe o servidor vincular o token à sessão ou ao IP original, o aplicativo não consegue tornar o link universal apenas editando a URL.")
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Diagnóstico da playlist")
+            .setMessage(message)
+            .setPositiveButton("Copiar URL completa") { _, _ -> copyText(url) }
+            .setNegativeButton("Fechar", null)
+            .show()
+    }
+
     private fun openPlayer(url: String) {
+        val uri = Uri.parse(url)
+        val mime = if (uri.lastPathSegment.orEmpty().lowercase().endsWith(".mpd"))
+            "application/dash+xml" else "application/vnd.apple.mpegurl"
+        // Tenta abrir explicitamente no VLC; se não estiver instalado, oferece o player padrão.
         try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                setDataAndType(Uri.parse(url), "application/vnd.apple.mpegurl")
-            })
+            val vlcIntent = Intent(Intent.ACTION_VIEW).apply {
+                setPackage("org.videolan.vlc")
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(vlcIntent)
         } catch (_: Exception) {
             try {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, mime)
+                }, "Abrir playlist com"))
             } catch (_: Exception) {
-                Toast.makeText(this, "Nenhum player compatível encontrado", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Nenhum player compatível encontrado. Copie a URL e teste no VLC.", Toast.LENGTH_LONG).show()
+                copyText(url)
             }
         }
     }
