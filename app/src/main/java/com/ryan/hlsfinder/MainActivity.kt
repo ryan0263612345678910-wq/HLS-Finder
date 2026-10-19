@@ -259,13 +259,13 @@ class MainActivity : Activity() {
             if (url.contains("cookie", true)) add("A URL menciona cookie; pode depender da sessão.")
         }
         val message = buildString {
-            append("Formato: ").append(kind).append("\\n")
-            append("Servidor: ").append(uri.host ?: "não identificado").append("\\n\\n")
+            append("Formato: ").append(kind).append("\n")
+            append("Servidor: ").append(uri.host ?: "não identificado").append("\n\n")
             append("URL completa preservada: sim\\n")
             if (tokenHints.isEmpty()) {
                 append("Não foi possível identificar restrições apenas pela URL.\\n")
             } else {
-                tokenHints.forEach { append("• ").append(it).append("\\n") }
+                tokenHints.forEach { append("• ").append(it).append("\n") }
             }
             append("\\nSe o servidor vincular o token à sessão ou ao IP original, o aplicativo não consegue tornar o link universal apenas editando a URL.")
         }
